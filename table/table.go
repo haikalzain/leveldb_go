@@ -1,17 +1,20 @@
 package table
 
-import "strings"
-
-const (
-	magic          = "\x57\xfb\x80\x8b\x24\x75\x47\xdb"
-	tableFooterLen = 40
+import (
+	"io"
+	"strings"
 )
 
-type CompressionType byte
+const (
+	magic             = "\x57\xfb\x80\x8b\x24\x75\x47\xdb"
+	blockTrailerLen   = 5
+	tableFooterLen    = 40
+	tableMaxBlockSize = 4096
+)
 
 const (
-	kNoCompression     CompressionType = 0
-	kSnappyCompression                 = 1
+	kNoCompression     = 0
+	kSnappyCompression = 1
 )
 
 type BlockHandle struct {
@@ -27,4 +30,11 @@ type StringComparator struct{}
 
 func (s *StringComparator) Compare(key1, key2 []byte) int {
 	return strings.Compare(string(key1), string(key2))
+}
+
+type RandomAccessReader interface {
+	io.Reader
+	io.ReaderAt
+	io.Seeker
+	io.Closer
 }

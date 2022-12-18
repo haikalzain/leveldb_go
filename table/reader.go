@@ -3,6 +3,9 @@ package table
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"github.com/golang/snappy"
+	"leveldb_go/crc"
 	"sort"
 	"unsafe"
 )
@@ -111,4 +114,174 @@ func (b *BlockIter) Seek(key []byte) bool {
 	}
 
 	return false
+}
+
+type Reader struct {
+	reader         RandomAccessReader
+	verifyChecksum bool
+	buf            []byte
+
+	metaBH  BlockHandle
+	indexBH BlockHandle
+
+	indexBlock []byte
+}
+
+func NewReader(reader RandomAccessReader, size int) (*Reader, error) {
+	r := &Reader{
+		reader:         reader,
+		verifyChecksum: true,
+		buf:            make([]byte, 50),
+	}
+	if size < tableFooterLen+8 {
+		return nil, fmt.Errorf("corruption: table is too small")
+	}
+
+	_, err := r.reader.ReadAt(r.buf[:8], int64(size-8))
+	if err != nil {
+		return nil, err
+	}
+	if string(r.buf[:8]) != magic {
+		return nil, fmt.Errorf("corruption: magic invalid")
+	}
+
+	meta, index, err := r.readFooter(int64(size - tableFooterLen - 8))
+	if err != nil {
+		return nil, err
+	}
+	r.metaBH = meta
+	r.indexBH = index
+	r.indexBlock, err = r.readBlock(r.indexBH)
+	if err != nil {
+		return nil, err
+	}
+
+	return r, nil
+}
+
+func (r *Reader) readFooter(offset int64) (BlockHandle, BlockHandle, error) {
+	_, err := r.reader.ReadAt(r.buf[:40], offset)
+	if err != nil {
+		return BlockHandle{}, BlockHandle{}, err
+	}
+	meta, n := decodeBlockHandle(r.buf)
+	index, m := decodeBlockHandle(r.buf[n:])
+	if n == 0 || m == 0 {
+		return BlockHandle{}, BlockHandle{}, errors.New("corruption: invalid footer")
+	}
+
+	return meta, index, nil
+}
+
+func decodeBlockHandle(buf []byte) (BlockHandle, int) {
+	offset, n := binary.Uvarint(buf)
+	size, m := binary.Uvarint(buf[n:])
+	if n == 0 || m == 0 {
+		return BlockHandle{}, 0
+	}
+	return BlockHandle{
+		offset: offset,
+		size:   size,
+	}, n + m
+}
+
+func (r *Reader) readBlock(bh BlockHandle) ([]byte, error) {
+	// can optimize by using buffer pool
+	b := make([]byte, bh.size+blockTrailerLen)
+	_, err := r.reader.ReadAt(b, int64(bh.offset))
+	if err != nil {
+		return nil, err
+	}
+	if r.verifyChecksum {
+		checksum := crc.New(b[:bh.size+1]).Value()
+		obtained := binary.LittleEndian.Uint32(b[bh.size+1:])
+		if checksum != obtained {
+			return nil, fmt.Errorf("corruption: incorrect checksum. expected %v got %v", obtained, checksum)
+		}
+	}
+
+	data := b[:bh.size]
+	switch b[bh.size] {
+	case kNoCompression:
+	case kSnappyCompression:
+		data, err = snappy.Decode(nil, b[:bh.size])
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("invalid compression type %d", b[bh.size])
+	}
+
+	return data, nil
+}
+
+func (r *Reader) Iterator() *TableIter {
+	indexIter := newBlockIter(r.indexBlock)
+	return &TableIter{
+		r:         r,
+		indexIter: indexIter,
+		dataIter:  nil,
+	}
+}
+
+type TableIter struct {
+	r         *Reader
+	indexIter *BlockIter
+	dataIter  *BlockIter
+}
+
+func (i *TableIter) Key() []byte {
+	if i.dataIter == nil {
+		return nil
+	}
+	return i.dataIter.Key()
+}
+
+func (i *TableIter) Value() []byte {
+	if i.dataIter == nil {
+		return nil
+	}
+	return i.dataIter.Value()
+}
+
+func (i *TableIter) Next() error {
+	// the actual implementations actually loop on this. i'm assuming no blocks are empty
+	// so we don't have to loop
+	// should also consider setting an error state once the iterator gets messed up
+	if i.dataIter != nil && i.dataIter.Next() == nil {
+		return nil
+	}
+
+	if err := i.indexIter.Next(); err != nil {
+		return err
+	}
+	bh, n := decodeBlockHandle(i.indexIter.Value())
+	if n == 0 {
+		return fmt.Errorf("corruption: invalid block handle")
+	}
+	block, err := i.r.readBlock(bh)
+	if err != nil {
+		return err
+	}
+	i.dataIter = newBlockIter(block)
+
+	return i.dataIter.Next()
+
+}
+
+func (i *TableIter) Seek(key []byte) bool {
+	i.dataIter = nil
+	if !i.indexIter.Seek(key) {
+		return false
+	}
+	bh, n := decodeBlockHandle(i.indexIter.Value())
+	if n == 0 {
+		return false
+	}
+	block, err := i.r.readBlock(bh)
+	if err != nil {
+		return false
+	}
+	i.dataIter = newBlockIter(block)
+	return i.dataIter.Seek(key)
 }
