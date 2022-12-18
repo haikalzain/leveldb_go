@@ -37,6 +37,10 @@ func TestReadWriteBlockData(t *testing.T) {
 	testBlockKVs(t, testKVs)
 }
 
+/*
+*
+Some of these tests are bad because for numbers >10 they aren't actually ordered
+*/
 func TestReadWriteBlockDataRestarts(t *testing.T) {
 	var testKVs []testKV
 	for i := 0; i < 50; i++ {
@@ -136,13 +140,13 @@ func TestReadWriteTableSimple(t *testing.T) {
 
 func TestReadWriteTableLarge(t *testing.T) {
 	var testKVs []testKV
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 1000; i++ {
 		testKVs = append(testKVs, testKV{
 			fmt.Sprint("key", i),
 			fmt.Sprint("value", i),
 		})
 	}
-	buffer := make([]byte, 1000)
+	buffer := make([]byte, 20000)
 	writer := newByteWriter(&buffer)
 	w := NewWriter(writer, 50)
 	for _, kv := range testKVs {
