@@ -96,3 +96,63 @@ func TestMemDB_GetPutDeleteLarge(t *testing.T) {
 		assert.Equal(t, kv.value, string(v))
 	}
 }
+
+func TestMemDB_Iterate(t *testing.T) {
+	var testKVs []testKV
+	for i := 0; i < 10; i++ {
+		testKVs = append(testKVs, testKV{
+			fmt.Sprint("key", i),
+			fmt.Sprint("value", i),
+		})
+	}
+
+	m := NewMemDB()
+
+	for _, kv := range testKVs {
+		m.Put([]byte(kv.key), []byte(kv.value))
+	}
+
+	for i := 5; i < 7; i++ {
+		m.Delete([]byte(testKVs[i].key))
+	}
+
+	iter := m.Iterator()
+
+	for i := 0; iter.Next() == nil; i++ {
+		if i == 5 {
+			i += 2
+		}
+		assert.Equal(t, testKVs[i].key, string(iter.Key()))
+		assert.Equal(t, testKVs[i].value, string(iter.Value()))
+	}
+}
+
+func TestMemDB_SeekLarge(t *testing.T) {
+	var testKVs []testKV
+	for i := 0; i < 1000; i++ {
+		testKVs = append(testKVs, testKV{
+			fmt.Sprintf("key%03d", i),
+			fmt.Sprintf("value%03d", i),
+		})
+	}
+
+	m := NewMemDB()
+
+	for _, kv := range testKVs {
+		m.Put([]byte(kv.key), []byte(kv.value))
+	}
+
+	for i := 500; i < 600; i++ {
+		m.Delete([]byte(testKVs[i].key))
+	}
+
+	iter := m.Iterator()
+	iter.Seek([]byte("key123"))
+	assert.Equal(t, "value123", string(iter.Value()))
+
+	iter.Seek([]byte("key543"))
+	assert.Equal(t, "value600", string(iter.Value()))
+
+	iter.Seek([]byte("key823"))
+	assert.Equal(t, "value823", string(iter.Value()))
+}

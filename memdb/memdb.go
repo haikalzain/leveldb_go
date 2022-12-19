@@ -1,6 +1,7 @@
 package memdb
 
 import (
+	"errors"
 	"leveldb_go/table"
 	"math/rand"
 )
@@ -119,4 +120,52 @@ func insertNode(head *node, cmp table.Comparator, key []byte, value []byte) {
 		newNode.nextNode[i] = prev[i].nextNode[i]
 		prev[i].nextNode[i] = newNode
 	}
+}
+
+type MemDBIter struct {
+	m           *MemDB
+	currentNode *node
+}
+
+func (m *MemDB) Iterator() *MemDBIter {
+	return &MemDBIter{
+		m:           m,
+		currentNode: m.head,
+	}
+}
+func (i *MemDBIter) Key() []byte {
+	if i.currentNode == nil {
+		return nil
+	}
+	return i.currentNode.key
+}
+
+func (i *MemDBIter) Value() []byte {
+	if i.currentNode == nil {
+		return nil
+	}
+	return i.currentNode.value
+}
+
+func (i *MemDBIter) Seek(key []byte) bool {
+	n, exact := findNode(i.m.head, i.m.cmp, key, nil)
+	i.currentNode = n
+	if exact && n.deleted == false {
+		return true
+	}
+	return i.Next() == nil
+}
+
+func (i *MemDBIter) Next() error {
+	for i.currentNode != nil {
+		i.currentNode = i.currentNode.nextNode[0]
+
+		if i.currentNode == nil || !i.currentNode.deleted {
+			break
+		}
+	}
+	if i.currentNode == nil {
+		return errors.New("eof")
+	}
+	return nil
 }
