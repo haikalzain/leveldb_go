@@ -17,12 +17,12 @@ const (
 )
 
 type Writer struct {
-	w      io.Writer
+	w      io.WriteCloser
 	buf    [chunkSize]byte
 	offset int
 }
 
-func NewWriter(writer io.Writer) *Writer {
+func NewWriter(writer io.WriteCloser) *Writer {
 	return &Writer{
 		w: writer,
 	}
@@ -79,6 +79,11 @@ func (w *Writer) Flush() error {
 	}
 	w.offset = 0
 	return nil
+}
+
+func (w *Writer) Close() error {
+	// should flush
+	return w.w.Close()
 }
 
 func (w *Writer) addBlock(block []byte, chunkType byte) {
