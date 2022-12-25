@@ -123,6 +123,7 @@ func TestReadWriteTableSimple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	writer.Close()
 
 	reader := newByteReader(buffer)
 	r, err := NewReader(reader, len(buffer))
@@ -159,6 +160,7 @@ func TestReadWriteTableLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	writer.Close()
 
 	reader := newByteReader(buffer)
 	r, err := NewReader(reader, len(buffer))
@@ -196,6 +198,7 @@ func TestTableSeekMultiple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	writer.Close()
 
 	reader := newByteReader(buffer)
 	r, err := NewReader(reader, len(buffer))

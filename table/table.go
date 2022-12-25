@@ -9,7 +9,7 @@ const (
 	magic             = "\x57\xfb\x80\x8b\x24\x75\x47\xdb"
 	blockTrailerLen   = 5
 	tableFooterLen    = 40
-	tableMaxBlockSize = 4096
+	TableMaxBlockSize = 4096
 )
 
 const (
