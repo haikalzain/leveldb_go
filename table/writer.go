@@ -20,8 +20,8 @@ type BlockWriter struct {
 }
 
 type Writer struct {
-	writer      *CountingWriter
-	closer      io.Closer
+	writer *CountingWriter
+	//closer      io.Closer
 	blockWriter *BlockWriter
 	indexWriter *BlockWriter
 
@@ -99,8 +99,8 @@ func (w *BlockWriter) Empty() bool {
 
 func NewWriter(writer io.WriteCloser, maxBlockSize int) *Writer {
 	return &Writer{
-		writer:       newCountingWriter(*bufio.NewWriter(writer)),
-		closer:       writer,
+		writer: newCountingWriter(*bufio.NewWriter(writer)),
+		//closer:       writer,
 		blockWriter:  newBlockWriter(16),
 		indexWriter:  newBlockWriter(1),
 		maxBlockSize: maxBlockSize,
@@ -174,6 +174,7 @@ func (w *Writer) writeBlock(block []byte) (BlockHandle, error) {
 
 }
 
+// keep the underlying file open
 func (w *Writer) Close() error {
 	// flush data block
 	err := w.finishDataBlock()
@@ -213,10 +214,10 @@ func (w *Writer) Close() error {
 		return err
 	}
 
-	err = w.closer.Close()
+	/*err = w.closer.Close()
 	if err != nil {
 		return err
-	}
+	}*/
 
 	return nil
 }
