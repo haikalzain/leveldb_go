@@ -1,10 +1,12 @@
 package db
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"leveldb_go/memdb"
 	"leveldb_go/record"
+	"leveldb_go/table"
 	"os"
 	"syscall"
 )
@@ -12,8 +14,9 @@ import (
 var LockErr = errors.New("cannot acquire file lock")
 
 type DB struct {
-	dirname string
-	mem     *memdb.MemDB
+	dirname      string
+	mem          *memdb.MemDB
+	lastTableNum int
 
 	flock io.Closer
 
@@ -34,6 +37,22 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	if ok {
 		return val, nil
 	}
+	f, err := os.Open(dbFilename(db.dirname, fileTypeTable, 0))
+	if err != nil {
+		return nil, err
+	}
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	reader, err := table.NewReader(f, int(stat.Size()))
+	if err != nil {
+		return nil, err
+	}
+	it := reader.Iterator()
+	if it.Seek(key) && bytes.Equal(it.Key(), key) {
+		return it.Value(), nil
+	}
 	return nil, errors.New("not found")
 }
 
@@ -43,13 +62,34 @@ func (db *DB) Set(key, value []byte) error {
 }
 
 func (db *DB) Close() error {
+	db.writeMemTable()
 	db.logWriter.Close()
 	db.flock.Close()
 	return nil
 }
 
 func (db *DB) writeMemTable() error {
+	// need to add version with this table
+	// do we need to copy memtable to keep iterator consistent?
+	// optimizations for tombstoned entries/entries with more recent sequence num
+	f, err := os.Create(dbFilename(db.dirname, fileTypeTable, db.lastTableNum))
+	db.lastTableNum++
+	if err != nil {
+		return err
+	}
+	writer := table.NewWriter(f, table.TableMaxBlockSize)
+	defer writer.Close()
+
+	it := db.mem.Iterator()
+	for it.Next() == nil {
+		writer.Add(it.Key(), it.Value())
+	}
+
 	return nil
+}
+
+func (db *DB) writeIterToTable() {
+
 }
 
 func Open(dirname string) (*DB, error) {
