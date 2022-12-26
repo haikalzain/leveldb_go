@@ -3,6 +3,7 @@ package memdb
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"leveldb_go/util"
 	"testing"
 )
 
@@ -11,6 +12,8 @@ type testKV struct {
 	value string
 }
 
+var cmp = &util.StringComparator{}
+
 func TestMemDB_GetPut(t *testing.T) {
 	testKVs := []testKV{
 		{"hello", "world"},
@@ -18,7 +21,7 @@ func TestMemDB_GetPut(t *testing.T) {
 		{"hell", "x3"},
 	}
 
-	m := NewMemDB()
+	m := NewMemDB(cmp)
 
 	for _, kv := range testKVs {
 		m.Put([]byte(kv.key), []byte(kv.value))
@@ -40,7 +43,7 @@ func TestMemDB_GetPutLarge(t *testing.T) {
 		})
 	}
 
-	m := NewMemDB()
+	m := NewMemDB(cmp)
 
 	for _, kv := range testKVs {
 		m.Put([]byte(kv.key), []byte(kv.value))
@@ -62,7 +65,7 @@ func TestMemDB_GetPutDeleteLarge(t *testing.T) {
 		})
 	}
 
-	m := NewMemDB()
+	m := NewMemDB(cmp)
 
 	for _, kv := range testKVs {
 		m.Put([]byte(kv.key), []byte(kv.value))
@@ -106,7 +109,7 @@ func TestMemDB_Iterate(t *testing.T) {
 		})
 	}
 
-	m := NewMemDB()
+	m := NewMemDB(cmp)
 
 	for _, kv := range testKVs {
 		m.Put([]byte(kv.key), []byte(kv.value))
@@ -136,7 +139,7 @@ func TestMemDB_SeekLarge(t *testing.T) {
 		})
 	}
 
-	m := NewMemDB()
+	m := NewMemDB(cmp)
 
 	for _, kv := range testKVs {
 		m.Put([]byte(kv.key), []byte(kv.value))

@@ -57,6 +57,26 @@ func TestReadWriteDB(t *testing.T) {
 	}
 }
 
+func TestReadWriteDBClose1(t *testing.T) {
+	testKVs := []testKV{
+		{"hello", "world"},
+	}
+
+	db, _ := Open(testdbPath)
+
+	for _, kv := range testKVs {
+		db.Set([]byte(kv.key), []byte(kv.value))
+	}
+
+	db.Close()
+	db2, _ := Open(testdbPath)
+	for _, kv := range testKVs {
+		v, err := db2.Get([]byte(kv.key))
+		assert.Nil(t, err)
+		assert.Equal(t, kv.value, string(v))
+	}
+}
+
 func TestReadWriteDBClose(t *testing.T) {
 	var testKVs []testKV
 	for i := 0; i < 50; i++ {

@@ -1,8 +1,9 @@
 package memdb
 
 import (
+	"bytes"
 	"errors"
-	"leveldb_go/table"
+	"leveldb_go/util"
 	"math/rand"
 )
 
@@ -10,13 +11,13 @@ const maxHeight = 12
 
 type MemDB struct {
 	head *node
-	cmp  table.Comparator
+	cmp  util.Comparator
 }
 
-func NewMemDB() *MemDB {
+func NewMemDB(cmp util.Comparator) *MemDB {
 	return &MemDB{
 		head: newNode(maxHeight),
-		cmp:  &table.StringComparator{},
+		cmp:  cmp,
 	}
 }
 
@@ -31,11 +32,26 @@ func (m *MemDB) Delete(key []byte) {
 	}
 }
 
+// Get /* do not use */
 func (m *MemDB) Get(key []byte) ([]byte, bool) {
 	n, exact := findNode(m.head, m.cmp, key, nil)
 	if !exact || n.deleted {
 		return nil, false
 	}
+	return n.value, true
+}
+
+func (m *MemDB) GetIKey(ikey util.IKey) ([]byte, bool) {
+	n, _ := findNode(m.head, m.cmp, ikey, nil)
+	if n == m.head {
+		return nil, false
+	}
+	ikey2 := util.IKey(n.key)
+
+	if ikey2.KeyType() == util.IKeyTypeDelete || !bytes.Equal(ikey.Key(), ikey2.Key()) {
+		return nil, false
+	}
+
 	return n.value, true
 }
 
@@ -54,7 +70,7 @@ func newNode(height int) *node {
 	}
 }
 
-func findNode(head *node, cmp table.Comparator, key []byte, prev *[maxHeight]*node) (*node, bool) {
+func findNode(head *node, cmp util.Comparator, key []byte, prev *[maxHeight]*node) (*node, bool) {
 	height := len(head.nextNode) - 1
 	current := head
 	for height >= 0 {
@@ -79,6 +95,9 @@ func findNode(head *node, cmp table.Comparator, key []byte, prev *[maxHeight]*no
 			if prev != nil {
 				prev[height] = current
 			}
+			if height == 0 {
+				return candidate, false
+			}
 			height--
 			continue
 		}
@@ -90,7 +109,7 @@ func findNode(head *node, cmp table.Comparator, key []byte, prev *[maxHeight]*no
 
 // need to add node type as well (tombstone deletion)
 
-func insertNode(head *node, cmp table.Comparator, key []byte, value []byte) {
+func insertNode(head *node, cmp util.Comparator, key []byte, value []byte) {
 	// TODO inefficient buffer allocation
 	k := make([]byte, len(key))
 	copy(k, key)

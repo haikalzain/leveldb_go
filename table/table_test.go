@@ -3,6 +3,7 @@ package table
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"leveldb_go/util"
 	"testing"
 )
 
@@ -11,6 +12,8 @@ type testKV struct {
 	value string
 }
 
+var cmp = &util.StringComparator{}
+
 func testBlockKVs(t *testing.T, testKVs []testKV) {
 	writer := newBlockWriter(16)
 	for _, kv := range testKVs {
@@ -18,7 +21,7 @@ func testBlockKVs(t *testing.T, testKVs []testKV) {
 	}
 	data := writer.finish()
 
-	iter := newBlockIter(data)
+	iter := newBlockIter(data, cmp)
 	i := 0
 	for i = 0; iter.Next() == nil; i++ {
 		assert.Equal(t, testKVs[i].key, string(iter.Key()))
@@ -68,7 +71,7 @@ func TestBlockSeekSingle(t *testing.T) {
 	}
 	data := writer.finish()
 
-	iter := newBlockIter(data)
+	iter := newBlockIter(data, cmp)
 
 	iter.Seek([]byte("key3"))
 	assert.Equal(t, testKVs[3].key, string(iter.Key()))
@@ -95,7 +98,7 @@ func TestBlockSeekMultiple(t *testing.T) {
 	}
 	data := writer.finish()
 
-	iter := newBlockIter(data)
+	iter := newBlockIter(data, cmp)
 
 	for i := 9; i >= 0; i-- {
 		iter.Seek([]byte(fmt.Sprint("key", i)))
@@ -106,9 +109,9 @@ func TestBlockSeekMultiple(t *testing.T) {
 
 func TestReadWriteTableSimple(t *testing.T) {
 	testKVs := []testKV{
-		{"hello", "world"},
-		{"hellllloooo", "x2"},
-		{"hell", "x3"},
+		{"helllllo", "world"},
+		{"hello2", "x2"},
+		{"hellp", "x3"},
 	}
 	buffer := make([]byte, 500)
 	writer := newByteWriter(&buffer)
@@ -126,7 +129,7 @@ func TestReadWriteTableSimple(t *testing.T) {
 	writer.Close()
 
 	reader := newByteReader(buffer)
-	r, err := NewReader(reader, len(buffer))
+	r, err := NewReader(reader, len(buffer), cmp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -137,6 +140,55 @@ func TestReadWriteTableSimple(t *testing.T) {
 		assert.Equal(t, testKVs[i].value, string(iter.Value()))
 	}
 	assert.Equal(t, len(testKVs), i)
+}
+
+func TestReadWriteTableIKeySimple(t *testing.T) {
+	testKVs := []testKV{
+		{"hello1", "world"},
+		{"hello2", "x2"},
+		{"hello3", "x3"},
+	}
+	buffer := make([]byte, 500)
+	writer := newByteWriter(&buffer)
+	w := NewWriter(writer, 50)
+	for _, kv := range testKVs {
+		key := util.CreateIKey([]byte(kv.key), util.IKeyTypeSet, 0)
+		err := w.Add(key, []byte(kv.value))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	err := w.Close()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	writer.Close()
+
+	reader := newByteReader(buffer)
+	r, err := NewReader(reader, len(buffer), util.IKeyStringCmp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	iter := r.Iterator()
+	i := 0
+	for i = 0; iter.Next() == nil; i++ {
+		key := util.IKey(iter.Key())
+
+		assert.Equal(t, testKVs[i].key, string(key.Key()))
+		assert.Equal(t, testKVs[i].value, string(iter.Value()))
+	}
+
+	assert.Equal(t, len(testKVs), i)
+
+	key := util.CreateIKey([]byte("hello2"), util.IKeyTypeSet, 0)
+	v, ok := iter.GetIKey(key)
+	assert.True(t, ok)
+	assert.Equal(t, "x2", string(v))
+
+	key = util.CreateIKey([]byte("hello3"), util.IKeyTypeSet, 0)
+	v, ok = iter.GetIKey(key)
+	assert.True(t, ok)
+	assert.Equal(t, "x3", string(v))
 }
 
 func TestReadWriteTableLarge(t *testing.T) {
@@ -163,7 +215,7 @@ func TestReadWriteTableLarge(t *testing.T) {
 	writer.Close()
 
 	reader := newByteReader(buffer)
-	r, err := NewReader(reader, len(buffer))
+	r, err := NewReader(reader, len(buffer), cmp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -201,7 +253,7 @@ func TestTableSeekMultiple(t *testing.T) {
 	writer.Close()
 
 	reader := newByteReader(buffer)
-	r, err := NewReader(reader, len(buffer))
+	r, err := NewReader(reader, len(buffer), cmp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

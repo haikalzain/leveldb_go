@@ -1,11 +1,13 @@
 package table
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/golang/snappy"
 	"leveldb_go/crc"
+	"leveldb_go/util"
 	"sort"
 	"unsafe"
 )
@@ -15,14 +17,14 @@ type BlockIter struct {
 	//nRestarts     int
 	restartOffset int
 	restarts      []uint32
-	cmp           Comparator
+	cmp           util.Comparator
 
 	offset int
 	key    []byte
 	value  []byte
 }
 
-func newBlockIter(block []byte) *BlockIter {
+func newBlockIter(block []byte, cmp util.Comparator) *BlockIter {
 	nRestarts := int(binary.LittleEndian.Uint32(block[len(block)-4:]))
 	restartOffset := len(block) - 4*(nRestarts+1)
 	if restartOffset < 0 {
@@ -34,7 +36,7 @@ func newBlockIter(block []byte) *BlockIter {
 		data:          block[:restartOffset],
 		restarts:      restarts,
 		restartOffset: restartOffset,
-		cmp:           &StringComparator{},
+		cmp:           cmp,
 	}
 }
 
@@ -87,22 +89,20 @@ func (b *BlockIter) Next() error {
 func (b *BlockIter) Seek(key []byte) bool {
 	i := sort.Search(len(b.restarts), func(i int) bool {
 		restart := int(b.restarts[len(b.restarts)-i-1]) // need to invert
-		shared, _, _, offset := b.decodeEntry(restart)
+		_, nonshared, _, offset := b.decodeEntry(restart)
 
-		// nonshared must be 0
-		foundKey := b.data[offset : offset+shared]
+		// shared must be 0
+		foundKey := b.data[offset : offset+nonshared]
 
-		if b.cmp.Compare(key, foundKey) >= 0 {
-			return true
-		}
-		return false
+		return b.cmp.Compare(key, foundKey) >= 0
 	})
 
+	// if smaller than all of them, choose the first restart point
 	if i == len(b.restarts) {
-		return false
+		i = len(b.restarts) - 1
 	}
 
-	restart := int(b.restarts[0])
+	restart := int(b.restarts[len(b.restarts)-i-1])
 
 	b.offset = restart
 	b.key = b.key[:0]
@@ -125,13 +125,16 @@ type Reader struct {
 	indexBH BlockHandle
 
 	indexBlock []byte
+
+	cmp util.Comparator
 }
 
-func NewReader(reader RandomAccessReader, size int) (*Reader, error) {
+func NewReader(reader RandomAccessReader, size int, cmp util.Comparator) (*Reader, error) {
 	r := &Reader{
 		reader:         reader,
 		verifyChecksum: true,
 		buf:            make([]byte, 50),
+		cmp:            cmp,
 	}
 	if size < tableFooterLen+8 {
 		return nil, fmt.Errorf("corruption: table is too small")
@@ -216,11 +219,12 @@ func (r *Reader) readBlock(bh BlockHandle) ([]byte, error) {
 }
 
 func (r *Reader) Iterator() *TableIter {
-	indexIter := newBlockIter(r.indexBlock)
+	indexIter := newBlockIter(r.indexBlock, r.cmp)
 	return &TableIter{
 		r:         r,
 		indexIter: indexIter,
 		dataIter:  nil,
+		cmp:       r.cmp,
 	}
 }
 
@@ -228,6 +232,7 @@ type TableIter struct {
 	r         *Reader
 	indexIter *BlockIter
 	dataIter  *BlockIter
+	cmp       util.Comparator
 }
 
 func (i *TableIter) Key() []byte {
@@ -263,7 +268,7 @@ func (i *TableIter) Next() error {
 	if err != nil {
 		return err
 	}
-	i.dataIter = newBlockIter(block)
+	i.dataIter = newBlockIter(block, i.cmp)
 
 	return i.dataIter.Next()
 
@@ -282,6 +287,20 @@ func (i *TableIter) Seek(key []byte) bool {
 	if err != nil {
 		return false
 	}
-	i.dataIter = newBlockIter(block)
+	i.dataIter = newBlockIter(block, i.cmp)
 	return i.dataIter.Seek(key)
+}
+
+func (i *TableIter) GetIKey(ikey util.IKey) ([]byte, bool) {
+	if !i.Seek(ikey) {
+		return nil, false
+	}
+
+	ikey2 := util.IKey(i.Key())
+
+	if ikey2.KeyType() == util.IKeyTypeDelete || !bytes.Equal(ikey.Key(), ikey2.Key()) {
+		return nil, false
+	}
+
+	return i.Value(), true
 }

@@ -1,12 +1,12 @@
 package db
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"leveldb_go/memdb"
 	"leveldb_go/record"
 	"leveldb_go/table"
+	"leveldb_go/util"
 	"os"
 	"syscall"
 )
@@ -18,9 +18,14 @@ type DB struct {
 	mem          *memdb.MemDB
 	lastTableNum int
 
+	currentVersion *Version
+	seqNum         int64
+
 	flock io.Closer
 
 	logWriter *record.Writer
+
+	cmp util.Comparator
 }
 
 func createDB(dirname string) error {
@@ -33,10 +38,12 @@ func createDB(dirname string) error {
 }
 
 func (db *DB) Get(key []byte) ([]byte, error) {
-	val, ok := db.mem.Get(key)
+	ikey := util.CreateIKey(key, util.IKeyTypeSet, db.seqNum+1000) // TODO need to fix
+	val, ok := db.mem.GetIKey(ikey)
 	if ok {
 		return val, nil
 	}
+
 	f, err := os.Open(dbFilename(db.dirname, fileTypeTable, 0))
 	if err != nil {
 		return nil, err
@@ -45,19 +52,26 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	reader, err := table.NewReader(f, int(stat.Size()))
+	reader, err := table.NewReader(f, int(stat.Size()), db.cmp)
 	if err != nil {
 		return nil, err
 	}
 	it := reader.Iterator()
-	if it.Seek(key) && bytes.Equal(it.Key(), key) {
-		return it.Value(), nil
+	v, ok := it.GetIKey(ikey)
+	if ok {
+		return v, nil
 	}
 	return nil, errors.New("not found")
 }
 
+func (db *DB) nextSeqNum() int64 {
+	db.seqNum++
+	return db.seqNum
+}
+
 func (db *DB) Set(key, value []byte) error {
-	db.mem.Put(key, value)
+	ikey := util.CreateIKey(key, util.IKeyTypeSet, db.nextSeqNum())
+	db.mem.Put(ikey, value)
 	return nil
 }
 
@@ -112,7 +126,7 @@ func Open(dirname string) (*DB, error) {
 	// do something with manifest
 
 	logFile, err := os.Create(dbFilename(dirname, fileTypeLog, 0))
-	memtable := memdb.NewMemDB()
+	memtable := memdb.NewMemDB(util.IKeyStringCmp)
 	logWriter := record.NewWriter(logFile)
 
 	return &DB{
@@ -120,6 +134,7 @@ func Open(dirname string) (*DB, error) {
 		mem:       memtable,
 		logWriter: logWriter,
 		flock:     flock,
+		cmp:       util.IKeyStringCmp,
 	}, nil
 
 }
