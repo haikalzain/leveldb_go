@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+type closeableBuffer struct {
+	bytes.Buffer
+}
+
+func (c closeableBuffer) Close() error {
+	return nil
+}
+
 func blob(s string, n int) string {
 	var b strings.Builder
 	for i := 0; i < n; i++ {
@@ -16,22 +24,22 @@ func blob(s string, n int) string {
 }
 
 func TestReadWrite(t *testing.T) {
-	buf := bytes.NewBuffer(nil)
-	writer := NewWriter(buf)
+	var buf closeableBuffer
+	writer := NewWriter(&buf)
 	n, _ := writer.Write([]byte("hello"))
 	assert.Equal(t, 5, n)
 	writer.Flush()
 
-	reader := NewReader(buf)
+	reader := NewReader(&buf)
 	data, _ := reader.ReadBlock()
 
 	assert.Equal(t, "hello", string(data))
 }
 
 func TestBoundary(t *testing.T) {
-	buf := bytes.NewBuffer(nil)
-	writer := NewWriter(buf)
-	reader := NewReader(buf)
+	var buf closeableBuffer
+	writer := NewWriter(&buf)
+	reader := NewReader(&buf)
 	first := blob("ab", 10000)
 	second := blob("bc", 10000)
 	third := blob("ab", 30000)

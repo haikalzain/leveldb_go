@@ -17,9 +17,10 @@ const (
 )
 
 type Writer struct {
-	w      io.WriteCloser
-	buf    [chunkSize]byte
-	offset int
+	w       io.WriteCloser
+	buf     [chunkSize]byte
+	offset  int
+	flushed int
 }
 
 func NewWriter(writer io.WriteCloser) *Writer {
@@ -34,7 +35,7 @@ func (w *Writer) Write(data []byte) (int, error) {
 	for {
 		rem := chunkSize - w.offset - blockHeaderSize
 		if rem < 0 {
-			err := w.Flush()
+			err := w.finishBlock()
 			if err != nil {
 				return 0, err
 			}
@@ -58,7 +59,7 @@ func (w *Writer) Write(data []byte) (int, error) {
 			chunkType = firstChunkType
 		}
 		w.addBlock(chunk, chunkType)
-		err := w.Flush()
+		err := w.finishBlock()
 		if err != nil {
 			return 0, err
 		}
@@ -68,21 +69,33 @@ func (w *Writer) Write(data []byte) (int, error) {
 	return written, nil
 }
 
-func (w *Writer) Flush() error {
+func (w *Writer) finishBlock() error {
 	for w.offset < chunkSize {
 		w.buf[w.offset] = 0
 		w.offset++
 	}
-	_, err := w.w.Write(w.buf[:])
+	err := w.Flush()
 	if err != nil {
 		return err
 	}
 	w.offset = 0
+	w.flushed = 0
+	return nil
+}
+
+func (w *Writer) Flush() error {
+	_, err := w.w.Write(w.buf[w.flushed:w.offset])
+	if err != nil {
+		return err
+	}
+	w.flushed = w.offset
 	return nil
 }
 
 func (w *Writer) Close() error {
-	// should flush
+	if w.offset > 0 {
+		w.finishBlock()
+	}
 	return w.w.Close()
 }
 
