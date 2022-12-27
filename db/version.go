@@ -68,7 +68,7 @@ func (v *Version) applyVersionEdit(ve *VersionEdit) *Version {
 		for _, f := range ve.filesToRemove[i] {
 			deleted[f.fileNum] = true
 		}
-		version.files[i] = make([]tableFile, len(v.files[i])+len(ve.filesToAdd)-len(ve.filesToRemove))
+		version.files[i] = make([]tableFile, 0, len(v.files[i])+len(ve.filesToAdd[i])-len(ve.filesToRemove[i]))
 
 		for _, f := range v.files[i] {
 			_, exists := deleted[f.fileNum]

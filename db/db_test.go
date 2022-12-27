@@ -50,6 +50,30 @@ func TestReadWriteDB(t *testing.T) {
 	}
 
 	db, _ := Open(testdbPath, Opt{maxMemorySize: 10000})
+	defer db.Close()
+
+	for _, kv := range testKVs {
+		db.Set([]byte(kv.key), []byte(kv.value))
+	}
+
+	for _, kv := range testKVs {
+		v, err := db.Get([]byte(kv.key))
+		assert.Nil(t, err)
+		assert.Equal(t, kv.value, string(v))
+	}
+}
+
+func TestOverflowMemtable(t *testing.T) {
+	var testKVs []testKV
+	for i := 0; i < 50; i++ {
+		testKVs = append(testKVs, testKV{
+			fmt.Sprint("key", i),
+			fmt.Sprint("value", i),
+		})
+	}
+
+	db, _ := Open(testdbPath, Opt{maxMemorySize: 50})
+	defer db.Close()
 
 	for _, kv := range testKVs {
 		db.Set([]byte(kv.key), []byte(kv.value))
@@ -75,6 +99,7 @@ func TestReadWriteDBClose1(t *testing.T) {
 
 	db.Close()
 	db2, _ := Open(testdbPath, opt)
+	defer db2.Close()
 	for _, kv := range testKVs {
 		v, err := db2.Get([]byte(kv.key))
 		assert.Nil(t, err)
@@ -99,6 +124,7 @@ func TestReadWriteDBClose(t *testing.T) {
 
 	db.Close()
 	db2, _ := Open(testdbPath, opt)
+	defer db2.Close()
 	for _, kv := range testKVs {
 		v, err := db2.Get([]byte(kv.key))
 		assert.Nil(t, err)

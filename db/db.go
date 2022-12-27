@@ -25,7 +25,8 @@ type DB struct {
 
 	logWriter *record.Writer
 
-	cmp util.Comparator
+	cmp  util.Comparator
+	ucmp util.Comparator
 
 	opt Opt
 }
@@ -57,7 +58,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 func (db *DB) getFromDisk(ikey util.IKey, version *Version) ([]byte, error) {
 	for level := 0; level < numLevels; level++ {
 		for _, meta := range version.files[level] {
-			if db.cmp.Compare(ikey, meta.minKey) >= 0 && db.cmp.Compare(ikey, meta.maxKey) >= 0 {
+			if db.ucmp.Compare(ikey.Key(), meta.minKey.Key()) >= 0 && db.cmp.Compare(ikey, meta.maxKey) <= 0 {
 				v, err := db.lookupTable(ikey, meta.fileNum)
 				if err == nil {
 					return v, nil
@@ -190,6 +191,7 @@ func Open(dirname string, opt Opt) (*DB, error) {
 		logWriter:  logWriter,
 		flock:      flock,
 		cmp:        util.IKeyStringCmp,
+		ucmp:       &util.StringComparator{},
 		opt:        opt,
 		versionSet: NewVersionSet(),
 	}, nil
