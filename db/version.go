@@ -25,6 +25,10 @@ func (v *Version) addTable(meta tableFile) {
 	v.files[level] = append(v.files[level], meta)
 }
 
+func (v *Version) seqNum() uint64 {
+	return v.seq
+}
+
 type byFileNum []tableFile
 
 func (b byFileNum) Less(i, j int) bool {
@@ -53,8 +57,7 @@ func (b byMinKey) Len() int {
 	return len(b)
 }
 
-func (v *Version) applyVersionEdit(ve VersionEdit) *Version {
-
+func (v *Version) applyVersionEdit(ve *VersionEdit) *Version {
 	version := Version{
 		seq:  ve.newSeq,
 		refs: 0,
@@ -95,6 +98,20 @@ type VersionEdit struct {
 	filesToRemove [numLevels][]tableFile
 }
 
+func NewVersionEdit(newSeq uint64, filesToAdd []tableFile, filesToRemove []tableFile) *VersionEdit {
+	ve := VersionEdit{
+		newSeq: newSeq,
+	}
+	for _, f := range filesToAdd {
+		ve.filesToAdd[f.level] = append(ve.filesToAdd[f.level], f)
+	}
+	for _, f := range filesToRemove {
+		ve.filesToRemove[f.level] = append(ve.filesToRemove[f.level], f)
+	}
+
+	return &ve
+}
+
 type tableFile struct {
 	fileNum int
 	minKey  util.IKey
@@ -104,4 +121,32 @@ type tableFile struct {
 
 type Snapshot struct {
 	version *Version
+}
+
+type VersionSet struct {
+	currentVersion *Version
+}
+
+func NewVersionSet() *VersionSet {
+	return &VersionSet{
+		currentVersion: newVersion(0),
+	}
+}
+
+// should we use *VersionEdit to reduce copying?
+func (v *VersionSet) ApplyVersionEdit(ve *VersionEdit) {
+	version := v.currentVersion.applyVersionEdit(ve)
+	v.Append(version)
+}
+
+func (v *VersionSet) Append(version *Version) {
+	v.currentVersion.next = version
+	version.prev = v.currentVersion
+	v.currentVersion = version
+
+	// update ref counts?
+}
+
+func AcquireCurrentVersion() {
+
 }

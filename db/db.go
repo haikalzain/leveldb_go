@@ -18,14 +18,20 @@ type DB struct {
 	mem          *memdb.MemDB
 	lastTableNum int
 
-	currentVersion *Version
-	seqNum         int64
+	versionSet *VersionSet // version is created when memtable is filled or when compaction occurs
+	seqNum     uint64
 
 	flock io.Closer
 
 	logWriter *record.Writer
 
 	cmp util.Comparator
+
+	opt Opt
+}
+
+type Opt struct {
+	maxMemorySize int
 }
 
 func createDB(dirname string) error {
@@ -38,13 +44,32 @@ func createDB(dirname string) error {
 }
 
 func (db *DB) Get(key []byte) ([]byte, error) {
-	ikey := util.CreateIKey(key, util.IKeyTypeSet, db.seqNum+1000) // TODO need to fix
+
+	ikey := util.CreateIKey(key, util.IKeyTypeSet, db.seqNum)
 	val, ok := db.mem.GetIKey(ikey)
 	if ok {
 		return val, nil
 	}
+	version := db.versionSet.currentVersion // should acquire and release version
+	return db.getFromDisk(ikey, version)
+}
 
-	f, err := os.Open(dbFilename(db.dirname, fileTypeTable, 0))
+func (db *DB) getFromDisk(ikey util.IKey, version *Version) ([]byte, error) {
+	for level := 0; level < numLevels; level++ {
+		for _, meta := range version.files[level] {
+			if db.cmp.Compare(ikey, meta.minKey) >= 0 && db.cmp.Compare(ikey, meta.maxKey) >= 0 {
+				v, err := db.lookupTable(ikey, meta.fileNum)
+				if err == nil {
+					return v, nil
+				}
+			}
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (db *DB) lookupTable(ikey util.IKey, fileNum int) ([]byte, error) {
+	f, err := os.Open(dbFilename(db.dirname, fileTypeTable, fileNum))
 	if err != nil {
 		return nil, err
 	}
@@ -64,12 +89,20 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	return nil, errors.New("not found")
 }
 
-func (db *DB) nextSeqNum() int64 {
+func (db *DB) nextSeqNum() uint64 {
 	db.seqNum++
 	return db.seqNum
 }
 
 func (db *DB) Set(key, value []byte) error {
+	if len(value)+db.mem.ApproxSize() > db.opt.maxMemorySize {
+		err := db.writeMemTable()
+		if err != nil {
+			return err
+		}
+		db.mem = memdb.NewMemDB(db.cmp)
+	}
+
 	ikey := util.CreateIKey(key, util.IKeyTypeSet, db.nextSeqNum())
 	db.mem.Put(ikey, value)
 	return nil
@@ -87,17 +120,39 @@ func (db *DB) writeMemTable() error {
 	// do we need to copy memtable to keep iterator consistent?
 	// optimizations for tombstoned entries/entries with more recent sequence num
 	f, err := os.Create(dbFilename(db.dirname, fileTypeTable, db.lastTableNum))
-	db.lastTableNum++
+
 	if err != nil {
 		return err
 	}
 	writer := table.NewWriter(f, table.TableMaxBlockSize)
 	defer writer.Close()
 
+	var minKey, maxKey util.IKey
 	it := db.mem.Iterator()
 	for it.Next() == nil {
+		if minKey == nil {
+			minKey = it.Key()
+			maxKey = it.Key()
+		} else {
+			if db.cmp.Compare(minKey, it.Key()) > 0 {
+				minKey = it.Key()
+			}
+			if db.cmp.Compare(maxKey, it.Key()) < 0 {
+				maxKey = it.Key()
+			}
+		}
 		writer.Add(it.Key(), it.Value())
 	}
+
+	ve := NewVersionEdit(db.seqNum, []tableFile{{
+		fileNum: db.lastTableNum,
+		minKey:  minKey,
+		maxKey:  maxKey,
+		level:   0,
+	}}, nil)
+	db.lastTableNum++
+
+	db.versionSet.ApplyVersionEdit(ve)
 
 	return nil
 }
@@ -106,7 +161,7 @@ func (db *DB) writeIterToTable() {
 
 }
 
-func Open(dirname string) (*DB, error) {
+func Open(dirname string, opt Opt) (*DB, error) {
 	// lock directory first
 	err := os.MkdirAll(dirname, 0755)
 	if err != nil {
@@ -130,11 +185,13 @@ func Open(dirname string) (*DB, error) {
 	logWriter := record.NewWriter(logFile)
 
 	return &DB{
-		dirname:   dirname,
-		mem:       memtable,
-		logWriter: logWriter,
-		flock:     flock,
-		cmp:       util.IKeyStringCmp,
+		dirname:    dirname,
+		mem:        memtable,
+		logWriter:  logWriter,
+		flock:      flock,
+		cmp:        util.IKeyStringCmp,
+		opt:        opt,
+		versionSet: NewVersionSet(),
 	}, nil
 
 }

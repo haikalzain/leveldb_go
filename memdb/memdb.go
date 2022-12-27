@@ -12,6 +12,7 @@ const maxHeight = 12
 type MemDB struct {
 	head *node
 	cmp  util.Comparator
+	size int
 }
 
 func NewMemDB(cmp util.Comparator) *MemDB {
@@ -23,6 +24,7 @@ func NewMemDB(cmp util.Comparator) *MemDB {
 
 func (m *MemDB) Put(key, value []byte) {
 	insertNode(m.head, m.cmp, key, value)
+	m.size += len(key) + len(value)
 }
 
 func (m *MemDB) Delete(key []byte) {
@@ -53,6 +55,10 @@ func (m *MemDB) GetIKey(ikey util.IKey) ([]byte, bool) {
 	}
 
 	return n.value, true
+}
+
+func (m *MemDB) ApproxSize() int {
+	return m.size
 }
 
 type node struct {

@@ -14,8 +14,13 @@ type testKV struct {
 	value string
 }
 
+var opt = Opt{
+	maxMemorySize: 100,
+}
+
 func TestDBOpen(t *testing.T) {
-	db, err := Open(testdbPath)
+	db, err := Open(testdbPath, opt)
+	defer db.Close()
 	assert.Nil(t, err)
 	_, err = db.Get([]byte("key"))
 	assert.NotNil(t, err)
@@ -31,7 +36,7 @@ func TestDBLock(t *testing.T) {
 	fd, _ := syscall.Open(dbFilename(testdbPath, fileTypeLock, 0), syscall.O_CREAT|syscall.O_WRONLY, 0)
 	defer syscall.Close(fd)
 	syscall.Flock(fd, syscall.LOCK_EX)
-	_, err := Open(testdbPath)
+	_, err := Open(testdbPath, opt)
 	assert.Equal(t, LockErr, err)
 }
 
@@ -44,7 +49,7 @@ func TestReadWriteDB(t *testing.T) {
 		})
 	}
 
-	db, _ := Open(testdbPath)
+	db, _ := Open(testdbPath, Opt{maxMemorySize: 10000})
 
 	for _, kv := range testKVs {
 		db.Set([]byte(kv.key), []byte(kv.value))
@@ -62,14 +67,14 @@ func TestReadWriteDBClose1(t *testing.T) {
 		{"hello", "world"},
 	}
 
-	db, _ := Open(testdbPath)
+	db, _ := Open(testdbPath, opt)
 
 	for _, kv := range testKVs {
 		db.Set([]byte(kv.key), []byte(kv.value))
 	}
 
 	db.Close()
-	db2, _ := Open(testdbPath)
+	db2, _ := Open(testdbPath, opt)
 	for _, kv := range testKVs {
 		v, err := db2.Get([]byte(kv.key))
 		assert.Nil(t, err)
@@ -86,14 +91,14 @@ func TestReadWriteDBClose(t *testing.T) {
 		})
 	}
 
-	db, _ := Open(testdbPath)
+	db, _ := Open(testdbPath, Opt{maxMemorySize: 10000})
 
 	for _, kv := range testKVs {
 		db.Set([]byte(kv.key), []byte(kv.value))
 	}
 
 	db.Close()
-	db2, _ := Open(testdbPath)
+	db2, _ := Open(testdbPath, opt)
 	for _, kv := range testKVs {
 		v, err := db2.Get([]byte(kv.key))
 		assert.Nil(t, err)

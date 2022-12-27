@@ -13,7 +13,7 @@ const (
 
 type IKey []byte
 
-func CreateIKey(key []byte, t IKeyType, seq int64) IKey {
+func CreateIKey(key []byte, t IKeyType, seq uint64) IKey {
 	ikey := make(IKey, len(key)+8)
 	copy(ikey, key)
 	trailer := ikey[len(key):]
