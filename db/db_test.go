@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"os"
 	"syscall"
 	"testing"
 )
@@ -18,7 +19,16 @@ var opt = Opt{
 	maxMemorySize: 100,
 }
 
+func clearDir() {
+	err := os.RemoveAll(testdbPath)
+	if err != nil {
+		panic("cannot clean dir")
+	}
+}
+
 func TestDBOpen(t *testing.T) {
+	clearDir()
+
 	db, err := Open(testdbPath, opt)
 	defer db.Close()
 	assert.Nil(t, err)
@@ -33,14 +43,19 @@ func TestDBOpen(t *testing.T) {
 }
 
 func TestDBLock(t *testing.T) {
-	fd, _ := syscall.Open(dbFilename(testdbPath, fileTypeLock, 0), syscall.O_CREAT|syscall.O_WRONLY, 0)
+	clearDir()
+	os.MkdirAll(testdbPath, 0666)
+
+	fd, err := syscall.Open(dbFilename(testdbPath, fileTypeLock, 0), syscall.O_CREAT|syscall.O_WRONLY, 0666)
 	defer syscall.Close(fd)
 	syscall.Flock(fd, syscall.LOCK_EX)
-	_, err := Open(testdbPath, opt)
+	_, err = Open(testdbPath, opt)
 	assert.Equal(t, LockErr, err)
 }
 
 func TestReadWriteDB(t *testing.T) {
+	clearDir()
+
 	var testKVs []testKV
 	for i := 0; i < 50; i++ {
 		testKVs = append(testKVs, testKV{
@@ -64,6 +79,8 @@ func TestReadWriteDB(t *testing.T) {
 }
 
 func TestOverflowMemtable(t *testing.T) {
+	clearDir()
+
 	var testKVs []testKV
 	for i := 0; i < 50; i++ {
 		testKVs = append(testKVs, testKV{
@@ -87,6 +104,8 @@ func TestOverflowMemtable(t *testing.T) {
 }
 
 func TestReadWriteDBClose1(t *testing.T) {
+	clearDir()
+
 	testKVs := []testKV{
 		{"hello", "world"},
 	}
@@ -108,6 +127,8 @@ func TestReadWriteDBClose1(t *testing.T) {
 }
 
 func TestReadWriteDBClose(t *testing.T) {
+	clearDir()
+
 	var testKVs []testKV
 	for i := 0; i < 50; i++ {
 		testKVs = append(testKVs, testKV{

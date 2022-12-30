@@ -24,6 +24,7 @@ type DB struct {
 	flock io.Closer
 
 	logWriter *record.Writer
+	manifest  *manifest
 
 	cmp  util.Comparator
 	ucmp util.Comparator
@@ -35,17 +36,7 @@ type Opt struct {
 	maxMemorySize int
 }
 
-func createDB(dirname string) error {
-	current, err := os.Create(dbFilename(dirname, fileTypeCurrent, 0))
-	if err != nil {
-		return err
-	}
-	current.Close()
-	return nil
-}
-
 func (db *DB) Get(key []byte) ([]byte, error) {
-
 	ikey := util.CreateIKey(key, util.IKeyTypeSet, db.seqNum)
 	val, ok := db.mem.GetIKey(ikey)
 	if ok {
@@ -56,6 +47,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 }
 
 func (db *DB) getFromDisk(ikey util.IKey, version *Version) ([]byte, error) {
+	db.lookupTable(ikey, 0)
 	for level := 0; level < numLevels; level++ {
 		for _, meta := range version.files[level] {
 			if db.ucmp.Compare(ikey.Key(), meta.minKey.Key()) >= 0 && db.cmp.Compare(ikey, meta.maxKey) <= 0 {
@@ -111,6 +103,7 @@ func (db *DB) Set(key, value []byte) error {
 
 func (db *DB) Close() error {
 	db.writeMemTable()
+	db.manifest.Close()
 	db.logWriter.Close()
 	db.flock.Close()
 	return nil
@@ -126,7 +119,6 @@ func (db *DB) writeMemTable() error {
 		return err
 	}
 	writer := table.NewWriter(f, table.TableMaxBlockSize)
-	defer writer.Close()
 
 	var minKey, maxKey util.IKey
 	it := db.mem.Iterator()
@@ -142,7 +134,12 @@ func (db *DB) writeMemTable() error {
 				maxKey = it.Key()
 			}
 		}
+
 		writer.Add(it.Key(), it.Value())
+	}
+	err = writer.Close()
+	if err != nil {
+		return err
 	}
 
 	ve := NewVersionEdit(db.seqNum, []tableFile{{
@@ -150,9 +147,15 @@ func (db *DB) writeMemTable() error {
 		minKey:  minKey,
 		maxKey:  maxKey,
 		level:   0,
+		size:    writer.Len(),
+		lastSeq: db.seqNum,
 	}}, nil)
 	db.lastTableNum++
 
+	err = db.manifest.logVersionEdit(ve)
+	if err != nil {
+		return err
+	}
 	db.versionSet.ApplyVersionEdit(ve)
 
 	return nil
@@ -169,21 +172,27 @@ func Open(dirname string, opt Opt) (*DB, error) {
 		return nil, err
 	}
 	flock, err := lockDB(dirname)
+
+	exist, err := isManifestExist(dirname)
 	if err != nil {
 		return nil, err
 	}
-	_, err = os.Stat(dbFilename(dirname, fileTypeCurrent, 0))
-	if os.IsNotExist(err) {
-		err := createDB(dirname)
+	if !exist {
+		err := initManifest(dirname)
 		if err != nil {
 			return nil, err
 		}
 	}
-	// do something with manifest
 
 	logFile, err := os.Create(dbFilename(dirname, fileTypeLog, 0))
 	memtable := memdb.NewMemDB(util.IKeyStringCmp)
 	logWriter := record.NewWriter(logFile)
+
+	// read manifest in, create vs and write out new manifest
+	manifest, vs, err := openManifest(dirname)
+	if err != nil {
+		return nil, err
+	}
 
 	return &DB{
 		dirname:    dirname,
@@ -193,7 +202,9 @@ func Open(dirname string, opt Opt) (*DB, error) {
 		cmp:        util.IKeyStringCmp,
 		ucmp:       &util.StringComparator{},
 		opt:        opt,
-		versionSet: NewVersionSet(),
+		versionSet: vs,
+		manifest:   manifest,
+		seqNum:     vs.currentVersion.seqNum(),
 	}, nil
 
 }

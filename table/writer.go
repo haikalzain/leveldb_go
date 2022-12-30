@@ -174,6 +174,10 @@ func (w *Writer) writeBlock(block []byte) (BlockHandle, error) {
 
 }
 
+func (w *Writer) Len() uint64 {
+	return w.writer.n
+}
+
 // keep the underlying file open
 func (w *Writer) Close() error {
 	// flush data block

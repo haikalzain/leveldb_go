@@ -139,7 +139,7 @@ func (r *Reader) ReadBlock() ([]byte, error) {
 	var data []byte
 	first := true
 	for {
-		if r.size-r.offset < blockHeaderSize {
+		if r.size-r.offset < blockHeaderSize || r.buf[r.offset+6] == 0 {
 			err := r.readBlock()
 			if err != nil {
 				return nil, err
