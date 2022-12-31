@@ -130,14 +130,14 @@ func TestReadWriteDBClose(t *testing.T) {
 	clearDir()
 
 	var testKVs []testKV
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 1000; i++ {
 		testKVs = append(testKVs, testKV{
 			fmt.Sprint("key", i),
 			fmt.Sprint("value", i),
 		})
 	}
 
-	db, _ := Open(testdbPath, Opt{maxMemorySize: 10000})
+	db, _ := Open(testdbPath, Opt{maxMemorySize: 1000})
 
 	for _, kv := range testKVs {
 		db.Set([]byte(kv.key), []byte(kv.value))

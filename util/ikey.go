@@ -39,12 +39,12 @@ func (k IKey) KeyType() IKeyType {
 func (k IKey) seqNum() uint64 {
 	i := len(k) - 7
 	n := uint64(k[i])
-	n |= uint64(k[i+1])
-	n |= uint64(k[i+2])
-	n |= uint64(k[i+3])
-	n |= uint64(k[i+4])
-	n |= uint64(k[i+5])
-	n |= uint64(k[i+6])
+	n |= uint64(k[i+1]) << 8
+	n |= uint64(k[i+2]) << 16
+	n |= uint64(k[i+3]) << 24
+	n |= uint64(k[i+4]) << 32
+	n |= uint64(k[i+5]) << 40
+	n |= uint64(k[i+6]) << 48
 	return n
 }
 

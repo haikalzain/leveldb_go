@@ -47,7 +47,6 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 }
 
 func (db *DB) getFromDisk(ikey util.IKey, version *Version) ([]byte, error) {
-	db.lookupTable(ikey, 0)
 	for level := 0; level < numLevels; level++ {
 		for _, meta := range version.files[level] {
 			if db.ucmp.Compare(ikey.Key(), meta.minKey.Key()) >= 0 && db.cmp.Compare(ikey, meta.maxKey) <= 0 {
